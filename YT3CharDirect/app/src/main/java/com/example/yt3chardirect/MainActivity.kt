@@ -2,12 +2,16 @@ package com.example.yt3chardirect
 
 import android.Manifest
 import android.app.Activity
-import android.content.*
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.net.Uri
-import android.os.*
+import android.os.Build
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.widget.*
@@ -20,7 +24,7 @@ class MainActivity : Activity() {
     private lateinit var handles: EditText
     private lateinit var stats: TextView
     private lateinit var status: TextView
-    private lateinit var list: ListView
+    private lateinit var results: ListView
     private lateinit var startBtn: Button
     private lateinit var pauseBtn: Button
     private var filter = "all"
@@ -48,8 +52,8 @@ class MainActivity : Activity() {
     }
 
     override fun onPause() {
-        super.onPause()
         handler.removeCallbacks(refresher)
+        super.onPause()
     }
 
     private fun buildUi() {
@@ -58,193 +62,171 @@ class MainActivity : Activity() {
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.rgb(8,13,25))
             setPadding(dp(14), dp(10), dp(14), dp(14))
+            setBackgroundColor(Color.rgb(8, 13, 25))
         }
 
-        val title = TextView(this).apply {
+        root.addView(TextView(this).apply {
             text = "YT 3-Char Direct"
             textSize = 22f
             setTextColor(Color.WHITE)
             setTypeface(typeface, Typeface.BOLD)
-        }
-        val sub = TextView(this).apply {
+        })
+        root.addView(TextView(this).apply {
             text = "Без API • без Cloudflare • прямые запросы с телефона"
             textSize = 12f
-            setTextColor(Color.rgb(145,163,194))
-            setPadding(0,0,0,dp(8))
-        }
-        root.addView(title)
-        root.addView(sub)
+            setTextColor(Color.rgb(145, 163, 194))
+            setPadding(0, 0, 0, dp(8))
+        })
 
         val scroll = ScrollView(this)
         val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         scroll.addView(content)
-        root.addView(scroll, LinearLayout.LayoutParams(-1,0,1f))
+        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
 
-        content.addView(card("1. Кандидаты") {
-            handles = EditText(this).apply {
+        content.addView(section("1. Кандидаты") { box ->
+            handles = EditText(this@MainActivity).apply {
                 hint = "@ahj\n@o2h\n@x7t\n..."
                 minLines = 5
                 maxLines = 8
                 gravity = Gravity.TOP
                 setTextColor(Color.WHITE)
-                setHintTextColor(Color.rgb(110,128,155))
-                setBackgroundColor(Color.rgb(11,19,34))
-                setPadding(dp(12),dp(10),dp(12),dp(10))
+                setHintTextColor(Color.rgb(110, 128, 155))
+                setBackgroundColor(Color.rgb(11, 19, 34))
+                setPadding(dp(12), dp(10), dp(12), dp(10))
             }
-            addView(handles, LinearLayout.LayoutParams(-1, dp(150)))
+            box.addView(handles, LinearLayout.LayoutParams(-1, dp(150)))
 
-            val r = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.HORIZONTAL }
-            val importBtn = button("Импорт TXT/CSV") { openImport() }
-            val prepareBtn = button("Подготовить") { prepareList() }
-            r.addView(importBtn, LinearLayout.LayoutParams(0,dp(48),1f).apply { marginEnd=dp(5) })
-            r.addView(prepareBtn, LinearLayout.LayoutParams(0,dp(48),1f).apply { marginStart=dp(5) })
-            addView(r)
+            val row = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.HORIZONTAL }
+            row.addView(makeButton("Импорт TXT/CSV") { openImport() }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(5) })
+            row.addView(makeButton("Подготовить") { prepareList() }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(5) })
+            box.addView(row)
         })
 
-        content.addView(card("2. Строгость") {
-            val row1 = LinearLayout(this@MainActivity).apply { orientation=LinearLayout.HORIZONTAL }
-            val passBox = numberBox("Подтверждений", prefs.getInt("confirmPasses",2), 2,5) {
+        content.addView(section("2. Строгость") { box ->
+            val row = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.HORIZONTAL }
+            row.addView(numberBox("Подтверждений", prefs.getInt("confirmPasses", 2), 2, 5) {
                 prefs.edit().putInt("confirmPasses", it).apply()
-            }
-            val retryBox = numberBox("Повторов ошибок", prefs.getInt("retryPasses",3), 1,8) {
+            }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(5) })
+            row.addView(numberBox("Повторов ошибок", prefs.getInt("retryPasses", 3), 1, 8) {
                 prefs.edit().putInt("retryPasses", it).apply()
-            }
-            row1.addView(passBox, LinearLayout.LayoutParams(0,-2,1f).apply{marginEnd=dp(5)})
-            row1.addView(retryBox, LinearLayout.LayoutParams(0,-2,1f).apply{marginStart=dp(5)})
-            addView(row1)
-
-            val delayBox = numberBox("Пауза между запросами, мс", prefs.getInt("delayMs",350), 0,5000) {
+            }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(5) })
+            box.addView(row)
+            box.addView(numberBox("Пауза между запросами, мс", prefs.getInt("delayMs", 350), 0, 5000) {
                 prefs.edit().putInt("delayMs", it).apply()
-            }
-            addView(delayBox)
-
-            val warning = TextView(this@MainActivity).apply {
-                text = "Любой 403/429/CAPTCHA/таймаут/неоднозначный ответ = НЕ ПОДТВЕРЖДЕНО. После основных проходов ошибки проверяются от сильных кандидатов к слабым. Рейтинг сам никого не удаляет."
+            })
+            box.addView(TextView(this@MainActivity).apply {
+                text = "403/429/CAPTCHA/таймаут/неоднозначный ответ = НЕ ПОДТВЕРЖДЕНО. После основных проходов ошибки идут повторно от сильных к слабым. Рейтинг никого не удаляет."
                 textSize = 12f
-                setTextColor(Color.rgb(190,202,222))
-                setBackgroundColor(Color.rgb(12,22,40))
-                setPadding(dp(10),dp(10),dp(10),dp(10))
-            }
-            addView(warning)
+                setTextColor(Color.rgb(190, 202, 222))
+                setBackgroundColor(Color.rgb(12, 22, 40))
+                setPadding(dp(10), dp(10), dp(10), dp(10))
+            })
         })
 
-        content.addView(card("3. Проверка") {
+        content.addView(section("3. Проверка") { box ->
             stats = TextView(this@MainActivity).apply {
                 textSize = 13f
                 setTextColor(Color.WHITE)
-                setPadding(0,0,0,dp(8))
+                setPadding(0, 0, 0, dp(8))
             }
             status = TextView(this@MainActivity).apply {
                 textSize = 12f
-                setTextColor(Color.rgb(145,163,194))
-                setPadding(0,0,0,dp(8))
+                setTextColor(Color.rgb(145, 163, 194))
+                setPadding(0, 0, 0, dp(8))
             }
-            addView(stats)
-            addView(status)
+            box.addView(stats)
+            box.addView(status)
 
-            val r = LinearLayout(this@MainActivity).apply { orientation=LinearLayout.HORIZONTAL }
-            startBtn = button("Начать") { startChecking() }
-            pauseBtn = button("Пауза") { togglePause() }
-            val reset = button("Сброс") { resetResults() }
-            r.addView(startBtn, LinearLayout.LayoutParams(0,dp(48),1f).apply{marginEnd=dp(4)})
-            r.addView(pauseBtn, LinearLayout.LayoutParams(0,dp(48),1f).apply{setMargins(dp(4),0,dp(4),0)})
-            r.addView(reset, LinearLayout.LayoutParams(0,dp(48),1f).apply{marginStart=dp(4)})
-            addView(r)
+            val row = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.HORIZONTAL }
+            startBtn = makeButton("Начать") { startChecking() }
+            pauseBtn = makeButton("Пауза") { togglePause() }
+            row.addView(startBtn, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(4) })
+            row.addView(pauseBtn, LinearLayout.LayoutParams(0, dp(48), 1f).apply { setMargins(dp(4), 0, dp(4), 0) })
+            row.addView(makeButton("Сброс") { resetResults() }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(4) })
+            box.addView(row)
         })
 
-        content.addView(card("4. Результаты") {
+        content.addView(section("4. Результаты") { box ->
             val tabs = HorizontalScrollView(this@MainActivity)
-            val row = LinearLayout(this@MainActivity).apply { orientation=LinearLayout.HORIZONTAL }
+            val tabRow = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.HORIZONTAL }
             listOf(
-                "Все" to "all",
-                "Сильные" to "strong",
-                "Не найден 1×" to "prelim",
-                "Заняты" to "busy",
-                "Не подтверждены" to "unknown",
-                "Невалидные" to "invalid"
-            ).forEach { (label,key) ->
-                row.addView(button(label) { filter=key; refreshList() }, LinearLayout.LayoutParams(-2,dp(44)).apply{marginEnd=dp(6)})
+                "Все" to "all", "Сильные" to "strong", "Не найден 1×" to "prelim",
+                "Заняты" to "busy", "Не подтверждены" to "unknown", "Невалидные" to "invalid"
+            ).forEach { (label, key) ->
+                tabRow.addView(makeButton(label) { filter = key; refreshList() }, LinearLayout.LayoutParams(-2, dp(44)).apply { marginEnd = dp(6) })
             }
-            tabs.addView(row)
-            addView(tabs)
+            tabs.addView(tabRow)
+            box.addView(tabs)
 
-            list = ListView(this@MainActivity).apply {
+            results = ListView(this@MainActivity).apply {
                 dividerHeight = 1
-                setBackgroundColor(Color.rgb(11,19,34))
+                setBackgroundColor(Color.rgb(11, 19, 34))
             }
-            addView(list, LinearLayout.LayoutParams(-1, dp(430)))
-
-            addView(button("Экспорт сильных TXT") { exportStrong() }, LinearLayout.LayoutParams(-1,dp(48)))
+            box.addView(results, LinearLayout.LayoutParams(-1, dp(430)))
+            box.addView(makeButton("Экспорт сильных TXT") { exportStrong() }, LinearLayout.LayoutParams(-1, dp(48)))
         })
 
-        val finalWarn = TextView(this).apply {
-            text = "Важно: несколько 404/«не найдено» означают только отсутствие публичной страницы. YouTube всё равно может не разрешить назначить этот handle. Финальный ответ даёт только попытка сохранить handle в самом YouTube."
+        content.addView(TextView(this).apply {
+            text = "Важно: несколько 404 означают только отсутствие публичной страницы. YouTube может всё равно не разрешить назначить handle. Финальная проверка — попытка сохранить handle в самом YouTube."
             textSize = 11f
-            setTextColor(Color.rgb(120,138,165))
-            setPadding(dp(4),dp(10),dp(4),dp(10))
-        }
-        content.addView(finalWarn)
+            setTextColor(Color.rgb(120, 138, 165))
+            setPadding(dp(4), dp(10), dp(4), dp(10))
+        })
 
         setContentView(root)
     }
 
-    private fun card(titleText: String, builder: LinearLayout.() -> Unit): View {
+    private fun section(title: String, fill: (LinearLayout) -> Unit): View {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(13),dp(13),dp(13),dp(13))
-            setBackgroundColor(Color.rgb(17,24,39))
+            setPadding(dp(13), dp(13), dp(13), dp(13))
+            setBackgroundColor(Color.rgb(17, 24, 39))
         }
-        val t = TextView(this).apply {
-            text = titleText
+        box.addView(TextView(this).apply {
+            text = title
             textSize = 15f
-            setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.WHITE)
-            setPadding(0,0,0,dp(9))
-        }
-        box.addView(t)
-        box.builder()
+            setTypeface(typeface, Typeface.BOLD)
+            setPadding(0, 0, 0, dp(9))
+        })
+        fill(box)
         return LinearLayout(this).apply {
-            setPadding(0,dp(5),0,dp(5))
-            addView(box, LinearLayout.LayoutParams(-1,-2))
+            setPadding(0, dp(5), 0, dp(5))
+            addView(box, LinearLayout.LayoutParams(-1, -2))
         }
     }
 
-    private fun button(label: String, action: () -> Unit): Button =
-        Button(this).apply {
-            text = label
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.rgb(37,54,83))
-            setOnClickListener { action() }
-        }
+    private fun makeButton(label: String, action: () -> Unit): Button = Button(this).apply {
+        text = label
+        setTextColor(Color.WHITE)
+        setBackgroundColor(Color.rgb(37, 54, 83))
+        setOnClickListener { action() }
+    }
 
-    private fun numberBox(label: String, initial: Int, min: Int, max: Int, onChange: (Int)->Unit): View {
-        val box = LinearLayout(this).apply {
-            orientation=LinearLayout.VERTICAL
-            setPadding(0,0,0,dp(8))
-        }
-        val l = TextView(this).apply {
-            text=label
-            textSize=11f
-            setTextColor(Color.rgb(145,163,194))
-        }
-        val e = EditText(this).apply {
+    private fun numberBox(label: String, initial: Int, min: Int, max: Int, save: (Int) -> Unit): View {
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        box.addView(TextView(this).apply {
+            text = label
+            textSize = 11f
+            setTextColor(Color.rgb(145, 163, 194))
+        })
+        val edit = EditText(this).apply {
             inputType = android.text.InputType.TYPE_CLASS_NUMBER
             setText(initial.toString())
             setTextColor(Color.WHITE)
-            setBackgroundColor(Color.rgb(11,19,34))
-            setPadding(dp(10),dp(8),dp(10),dp(8))
-            setOnFocusChangeListener { _, hasFocus ->
-                if (!hasFocus) {
-                    val v = text.toString().toIntOrNull()?.coerceIn(min,max) ?: initial
-                    setText(v.toString())
-                    onChange(v)
+            setBackgroundColor(Color.rgb(11, 19, 34))
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            setOnFocusChangeListener { _, focused ->
+                if (!focused) {
+                    val value = text.toString().toIntOrNull()?.coerceIn(min, max) ?: initial
+                    setText(value.toString())
+                    save(value)
                 }
             }
         }
-        box.addView(l)
-        box.addView(e, LinearLayout.LayoutParams(-1,dp(48)))
+        box.addView(edit, LinearLayout.LayoutParams(-1, dp(48)))
+        box.setPadding(0, 0, 0, dp(8))
         return box
     }
 
@@ -261,16 +243,12 @@ class MainActivity : Activity() {
 
     private fun startChecking() {
         if (db.total() == 0) prepareList()
-        if (db.total() == 0) {
-            toast("Сначала вставь список")
-            return
-        }
-        if (!prefs.getBoolean("running", false)) db.resetNetworkStates()
+        if (db.total() == 0) { toast("Сначала вставь список"); return }
+        db.resetNetworkStates()
         prefs.edit().putBoolean("paused", false).putBoolean("stop", false).apply()
-        val i = Intent(this, CheckService::class.java).apply { action = CheckService.ACTION_START }
-        if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
+        val intent = Intent(this, CheckService::class.java).apply { action = CheckService.ACTION_START }
+        if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent) else startService(intent)
         toast("Проверка запущена")
-        refresh()
     }
 
     private fun togglePause() {
@@ -290,11 +268,9 @@ class MainActivity : Activity() {
 
     private fun refresh() {
         val c = db.counts()
-        stats.text =
-            "Всего ${c["total"] ?: 0}   •   Сильные ${c["strong"] ?: 0}\n" +
-            "Не найден 1× ${c["prelim"] ?: 0}   •   Заняты ${c["busy"] ?: 0}\n" +
-            "Не подтверждены ${c["unknown"] ?: 0}   •   Невалидные ${c["invalid"] ?: 0}"
-
+        stats.text = "Всего ${c["total"] ?: 0} • Сильные ${c["strong"] ?: 0}\n" +
+            "Не найден 1× ${c["prelim"] ?: 0} • Заняты ${c["busy"] ?: 0}\n" +
+            "Не подтверждены ${c["unknown"] ?: 0} • Невалидные ${c["invalid"] ?: 0}"
         val running = prefs.getBoolean("running", false)
         val paused = prefs.getBoolean("paused", false)
         status.text = prefs.getString("status", "Готов")
@@ -305,9 +281,8 @@ class MainActivity : Activity() {
     }
 
     private fun refreshList() {
-        val arr = db.list(filter)
-        val lines = arr.map {
-            val badge = when(it.state) {
+        val lines = db.list(filter).map {
+            val badge = when (it.state) {
                 States.STRONG -> "СИЛЬНЫЙ"
                 States.PRELIM -> "НЕ НАЙДЕН 1×"
                 States.BUSY -> "КАНАЛ ЕСТЬ"
@@ -315,66 +290,51 @@ class MainActivity : Activity() {
                 States.INVALID -> "НЕВАЛИДЕН"
                 else -> "ОЖИДАЕТ"
             }
-            "@${it.handle}   [$badge]   сила ${it.score}/100\n${it.reason}"
+            "@${it.handle}  [$badge]  сила ${it.score}/100\n${it.reason}"
         }
-        list.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, lines)
+        results.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, lines)
     }
 
     private fun openImport() {
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             type = "text/*"
             addCategory(Intent.CATEGORY_OPENABLE)
-        }
-        startActivityForResult(intent, 500)
+        }, 500)
     }
 
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == 500 && resultCode == RESULT_OK) {
-            data?.data?.let { importFile(it) }
-        } else if (requestCode == 600 && resultCode == RESULT_OK) {
-            data?.data?.let { writeExport(it) }
-        }
+        if (resultCode != RESULT_OK) return
+        if (requestCode == 500) data?.data?.let { importFile(it) }
+        if (requestCode == 600) data?.data?.let { writeExport(it) }
     }
 
     private fun importFile(uri: Uri) {
         try {
-            val text = contentResolver.openInputStream(uri)?.use { input ->
-                BufferedReader(InputStreamReader(input)).readText()
-            } ?: ""
+            val text = contentResolver.openInputStream(uri)?.use { input -> BufferedReader(InputStreamReader(input)).readText() } ?: ""
             handles.setText(text)
             prepareList()
-        } catch (e: Exception) {
-            toast("Ошибка импорта: ${e.message}")
-        }
+        } catch (e: Exception) { toast("Ошибка импорта: ${e.message}") }
     }
 
     private fun exportStrong() {
-        val arr = db.list("strong", 100000)
-        if (arr.isEmpty()) {
-            toast("Сильных кандидатов пока нет")
-            return
-        }
-        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+        val count = db.list("strong", 100000).size
+        if (count == 0) { toast("Сильных кандидатов пока нет"); return }
+        startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
             type = "text/plain"
-            putExtra(Intent.EXTRA_TITLE, "youtube_3char_strong_${arr.size}.txt")
-        }
-        startActivityForResult(intent, 600)
+            putExtra(Intent.EXTRA_TITLE, "youtube_3char_strong_${count}.txt")
+        }, 600)
     }
 
     private fun writeExport(uri: Uri) {
         try {
-            val arr = db.list("strong", 100000)
-            contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { w ->
-                arr.sortedByDescending { it.score }.forEach {
-                    w.append("@${it.handle}\tсила ${it.score}/100\tне найден ${it.clearCount}x\n")
-                }
+            val arr = db.list("strong", 100000).sortedByDescending { it.score }
+            contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { out ->
+                arr.forEach { out.append("@${it.handle}\tсила ${it.score}/100\tне найден ${it.clearCount}x\n") }
             }
             toast("Экспортировано: ${arr.size}")
-        } catch (e: Exception) {
-            toast("Ошибка экспорта: ${e.message}")
-        }
+        } catch (e: Exception) { toast("Ошибка экспорта: ${e.message}") }
     }
 
     private fun requestNotificationPermission() {
@@ -383,6 +343,6 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
-    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+    private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
+    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 }
